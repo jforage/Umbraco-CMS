@@ -20,9 +20,12 @@ namespace umbraco.presentation.umbraco_client.tinymce3.plugins.spellchecker
             StreamReader reader = null;
             HttpWebResponse response = null;
             Stream requestStream = null;
-            try
-            {
-                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(requestUriString);
+
+			var activeProtocol = ServicePointManager.SecurityProtocol;
+			try
+			{
+				ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls;
+				HttpWebRequest request = (HttpWebRequest)WebRequest.Create(requestUriString);
                 request.KeepAlive = false;
                 request.Method = "POST";
                 request.ContentType = "application/PTI26";
@@ -53,6 +56,8 @@ namespace umbraco.presentation.umbraco_client.tinymce3.plugins.spellchecker
                 {
                     response.Close();
                 }
+
+				ServicePointManager.SecurityProtocol = activeProtocol;
             }
             return googleResponse;
         }

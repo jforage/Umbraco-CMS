@@ -1439,26 +1439,35 @@ namespace umbraco
         /// <returns>The xml file as a XpathNodeIterator</returns>
         public static XPathNodeIterator GetXmlDocumentByUrl(string Url)
         {
-            XmlDocument xmlDoc = new XmlDocument();
-            WebRequest request = WebRequest.Create(Url);
-            try
-            {
-                WebResponse response = request.GetResponse();
-                Stream responseStream = response.GetResponseStream();
-                XmlTextReader reader = new XmlTextReader(responseStream);
+			var activeProtocol = ServicePointManager.SecurityProtocol;
+			try
+			{
+				ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls;
+				XmlDocument xmlDoc = new XmlDocument();
+				WebRequest request = WebRequest.Create(Url);
+				try
+				{
+					WebResponse response = request.GetResponse();
+					Stream responseStream = response.GetResponseStream();
+					XmlTextReader reader = new XmlTextReader(responseStream);
 
-                xmlDoc.Load(reader);
+					xmlDoc.Load(reader);
 
-                response.Close();
-                responseStream.Close();
-            }
-            catch (Exception err)
-            {
-                xmlDoc.LoadXml(string.Format("<error url=\"{0}\">{1}</error>",
-                                             HttpContext.Current.Server.HtmlEncode(Url), err));
-            }
-            XPathNavigator xp = xmlDoc.CreateNavigator();
-            return xp.Select("/");
+					response.Close();
+					responseStream.Close();
+				}
+				catch (Exception err)
+				{
+					xmlDoc.LoadXml(string.Format("<error url=\"{0}\">{1}</error>",
+												 HttpContext.Current.Server.HtmlEncode(Url), err));
+				}
+				XPathNavigator xp = xmlDoc.CreateNavigator();
+				return xp.Select("/");
+			}
+			finally
+			{
+				ServicePointManager.SecurityProtocol = activeProtocol;
+			}
         }
 
         /// <summary>
