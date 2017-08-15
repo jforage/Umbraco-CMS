@@ -113,42 +113,33 @@ namespace umbraco.presentation
 
 		private static bool getTaskByHttp(string url)
 		{
-			var activeProtocol = ServicePointManager.SecurityProtocol;
+			var myHttpWebRequest = (HttpWebRequest)WebRequest.Create(url);
+			HttpWebResponse myHttpWebResponse = null;
 			try
 			{
-				ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls;
-				var myHttpWebRequest = (HttpWebRequest)WebRequest.Create(url);
-				HttpWebResponse myHttpWebResponse = null;
-				try
+				myHttpWebResponse = (HttpWebResponse)myHttpWebRequest.GetResponse();
+				if(myHttpWebResponse.StatusCode == HttpStatusCode.OK)
 				{
-					myHttpWebResponse = (HttpWebResponse)myHttpWebRequest.GetResponse();
-					if (myHttpWebResponse.StatusCode == HttpStatusCode.OK)
-					{
-						myHttpWebResponse.Close();
-						return true;
-					}
-					else
-					{
-						myHttpWebResponse.Close();
-						return false;
-					}
+					myHttpWebResponse.Close();
+					return true;
 				}
-				catch
+				else
 				{
+					myHttpWebResponse.Close();
+					return false;
 				}
-				finally
-				{
-					// Release the HttpWebResponse Resource.
-					if (myHttpWebResponse != null)
-						myHttpWebResponse.Close();
-				}
-
-				return false;
+			}
+			catch
+			{
 			}
 			finally
 			{
-				ServicePointManager.SecurityProtocol = activeProtocol;
+				// Release the HttpWebResponse Resource.
+				if(myHttpWebResponse != null)
+					myHttpWebResponse.Close();
 			}
+
+			return false;
 		}
 	}
 }

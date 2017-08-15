@@ -1762,97 +1762,87 @@ namespace umbraco
 
         public static string MacroContentByHttp(int PageID, Guid PageVersion, Hashtable attributes)
         {
-			var activeProtocol = ServicePointManager.SecurityProtocol;
-			try
-			{
-				ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls;
+            string tempAlias = (attributes["macroalias"] != null)
+                                   ? attributes["macroalias"].ToString()
+                                   : attributes["macroAlias"].ToString();
+            macro currentMacro = GetMacro(tempAlias);
+            if (!currentMacro.DontRenderInEditor)
+            {
+                string querystring = "umbPageId=" + PageID + "&umbVersionId=" + PageVersion;
+                IDictionaryEnumerator ide = attributes.GetEnumerator();
+                while (ide.MoveNext())
+                    querystring += "&umb_" + ide.Key + "=" + HttpContext.Current.Server.UrlEncode((ide.Value ?? string.Empty).ToString());
 
-				string tempAlias = (attributes["macroalias"] != null)
-								   ? attributes["macroalias"].ToString()
-								   : attributes["macroAlias"].ToString();
-				macro currentMacro = GetMacro(tempAlias);
-				if (!currentMacro.DontRenderInEditor)
-				{
-					string querystring = "umbPageId=" + PageID + "&umbVersionId=" + PageVersion;
-					IDictionaryEnumerator ide = attributes.GetEnumerator();
-					while (ide.MoveNext())
-						querystring += "&umb_" + ide.Key + "=" + HttpContext.Current.Server.UrlEncode((ide.Value ?? string.Empty).ToString());
+                // Create a new 'HttpWebRequest' Object to the mentioned URL.
+                string retVal = string.Empty;
+                string protocol = GlobalSettings.UseSSL ? "https" : "http";
+                string url = string.Format("{0}://{1}:{2}{3}/macroResultWrapper.aspx?{4}", protocol,
+                                           HttpContext.Current.Request.ServerVariables["SERVER_NAME"],
+                                           HttpContext.Current.Request.ServerVariables["SERVER_PORT"],
+                                           IOHelper.ResolveUrl(SystemDirectories.Umbraco), querystring);
 
-					// Create a new 'HttpWebRequest' Object to the mentioned URL.
-					string retVal = string.Empty;
-					string protocol = GlobalSettings.UseSSL ? "https" : "http";
-					string url = string.Format("{0}://{1}:{2}{3}/macroResultWrapper.aspx?{4}", protocol,
-											   HttpContext.Current.Request.ServerVariables["SERVER_NAME"],
-											   HttpContext.Current.Request.ServerVariables["SERVER_PORT"],
-											   IOHelper.ResolveUrl(SystemDirectories.Umbraco), querystring);
+                var myHttpWebRequest = (HttpWebRequest)WebRequest.Create(url);
 
-					var myHttpWebRequest = (HttpWebRequest)WebRequest.Create(url);
+                // allows for validation of SSL conversations (to bypass SSL errors in debug mode!)
+                ServicePointManager.ServerCertificateValidationCallback += ValidateRemoteCertificate;
 
-					// allows for validation of SSL conversations (to bypass SSL errors in debug mode!)
-					ServicePointManager.ServerCertificateValidationCallback += ValidateRemoteCertificate;
+                // propagate the user's context
+                // zb-00004 #29956 : refactor cookies names & handling
+                HttpCookie inCookie = StateHelper.Cookies.UserContext.RequestCookie;
+                var cookie = new Cookie(inCookie.Name, inCookie.Value, inCookie.Path,
+                                        HttpContext.Current.Request.ServerVariables["SERVER_NAME"]);
+                myHttpWebRequest.CookieContainer = new CookieContainer();
+                myHttpWebRequest.CookieContainer.Add(cookie);
 
-					// propagate the user's context
-					// zb-00004 #29956 : refactor cookies names & handling
-					HttpCookie inCookie = StateHelper.Cookies.UserContext.RequestCookie;
-					var cookie = new Cookie(inCookie.Name, inCookie.Value, inCookie.Path,
-											HttpContext.Current.Request.ServerVariables["SERVER_NAME"]);
-					myHttpWebRequest.CookieContainer = new CookieContainer();
-					myHttpWebRequest.CookieContainer.Add(cookie);
+                // Assign the response object of 'HttpWebRequest' to a 'HttpWebResponse' variable.
+                HttpWebResponse myHttpWebResponse = null;
+                try
+                {
+                    myHttpWebResponse = (HttpWebResponse)myHttpWebRequest.GetResponse();
+                    if (myHttpWebResponse.StatusCode == HttpStatusCode.OK)
+                    {
+                        Stream streamResponse = myHttpWebResponse.GetResponseStream();
+                        var streamRead = new StreamReader(streamResponse);
+                        var readBuff = new Char[256];
+                        int count = streamRead.Read(readBuff, 0, 256);
+                        while (count > 0)
+                        {
+                            var outputData = new String(readBuff, 0, count);
+                            retVal += outputData;
+                            count = streamRead.Read(readBuff, 0, 256);
+                        }
+                        // Close the Stream object.
+                        streamResponse.Close();
+                        streamRead.Close();
 
-					// Assign the response object of 'HttpWebRequest' to a 'HttpWebResponse' variable.
-					HttpWebResponse myHttpWebResponse = null;
-					try
-					{
-						myHttpWebResponse = (HttpWebResponse)myHttpWebRequest.GetResponse();
-						if (myHttpWebResponse.StatusCode == HttpStatusCode.OK)
-						{
-							Stream streamResponse = myHttpWebResponse.GetResponseStream();
-							var streamRead = new StreamReader(streamResponse);
-							var readBuff = new Char[256];
-							int count = streamRead.Read(readBuff, 0, 256);
-							while (count > 0)
-							{
-								var outputData = new String(readBuff, 0, count);
-								retVal += outputData;
-								count = streamRead.Read(readBuff, 0, 256);
-							}
-							// Close the Stream object.
-							streamResponse.Close();
-							streamRead.Close();
+                        // Find the content of a form
+                        string grabStart = "<!-- grab start -->";
+                        string grabEnd = "<!-- grab end -->";
+                        int grabStartPos = retVal.IndexOf(grabStart) + grabStart.Length;
+                        int grabEndPos = retVal.IndexOf(grabEnd) - grabStartPos;
+                        retVal = retVal.Substring(grabStartPos, grabEndPos);
+                    }
+                    else
+                        retVal = ShowNoMacroContent(currentMacro);
 
-							// Find the content of a form
-							string grabStart = "<!-- grab start -->";
-							string grabEnd = "<!-- grab end -->";
-							int grabStartPos = retVal.IndexOf(grabStart) + grabStart.Length;
-							int grabEndPos = retVal.IndexOf(grabEnd) - grabStartPos;
-							retVal = retVal.Substring(grabStartPos, grabEndPos);
-						}
-						else
-							retVal = ShowNoMacroContent(currentMacro);
+                    // Release the HttpWebResponse Resource.
+                    myHttpWebResponse.Close();
+                }
+                catch (Exception)
+                {
+                    retVal = ShowNoMacroContent(currentMacro);
+                }
+                finally
+                {
+                    // Release the HttpWebResponse Resource.
+                    if (myHttpWebResponse != null)
+                        myHttpWebResponse.Close();
+                }
 
-						// Release the HttpWebResponse Resource.
-						myHttpWebResponse.Close();
-					}
-					catch (Exception)
-					{
-						retVal = ShowNoMacroContent(currentMacro);
-					}
-					finally
-					{
-						// Release the HttpWebResponse Resource.
-						if (myHttpWebResponse != null)
-							myHttpWebResponse.Close();
-					}
+                return retVal.Replace("\n", string.Empty).Replace("\r", string.Empty);
+            }
 
-					return retVal.Replace("\n", string.Empty).Replace("\r", string.Empty);
-				}
-
-				return ShowNoMacroContent(currentMacro);
-			}
-			finally
-			{
-				ServicePointManager.SecurityProtocol = activeProtocol;
-			}
+            return ShowNoMacroContent(currentMacro);
         }
 
         private static string ShowNoMacroContent(macro currentMacro)
